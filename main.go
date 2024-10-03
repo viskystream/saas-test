@@ -26,6 +26,7 @@ func main() {
 	streamHub = newStreamHub()
 	go streamHub.run()
 
+	r.HandleFunc("/webhook", handleWebhook).Methods("POST")
 	// Endpoints used by the client application
 	r.HandleFunc("/private-key", getPrivateKey).Methods("GET")
 	r.HandleFunc("/live-streams", getLiveStreams).Methods("GET")
