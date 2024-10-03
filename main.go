@@ -27,18 +27,6 @@ func main() {
 	go streamHub.run()
 
 	r.HandleFunc("/webhook", handleWebhook).Methods("POST")
-	// Endpoints used by the client application
-	r.HandleFunc("/private-key", getPrivateKey).Methods("GET")
-	r.HandleFunc("/live-streams", getLiveStreams).Methods("GET")
-	r.HandleFunc("/auth-token", getAuthToken).Methods("POST")
-
-	// Endpoint to get a list of viewers watching a broadcast
-	r.HandleFunc("/viewers-watching", getViewersWatching).Methods("GET")
-
-	// Endpoints to catch requests emitted by webhook events
-	r.HandleFunc("/webhook/viewer-joined", handleViewerJoined).Methods("POST")
-	r.HandleFunc("/webhook/viewer-left", handleViewerLeft).Methods("POST")
-	r.HandleFunc("/webhook/broadcast-ended", handleBroadcastEnded).Methods("POST")
 
 	// Add WebSocket endpoint
 	r.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
