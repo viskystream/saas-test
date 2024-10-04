@@ -128,13 +128,31 @@ func validateAndProcessWebhook(request WebhookRequest) WebhookResponse {
 			case "creating":
 				streamResponse.AppData = getUserData(stream.Token) // Value is the username
 			case "polling":
+				viewers := []string{}
 				for _, viewToken := range stream.ViewTokens {
 					viewTokenResponse := ViewTokenResponse{
 						Stop:    false,
 						AppData: getUserData(viewToken), // Value is the username
 					}
 					streamResponse.ViewTokens[viewToken.Value] = viewTokenResponse
+					// Add viewer to the list if not already present
+					viewerID := viewTokenResponse.AppData["user.id"]
+					if viewerID != "unknown" {
+						found := false
+						for _, v := range viewers {
+							if v == viewerID {
+								found = true
+								break
+							}
+						}
+						if !found {
+							viewers = append(viewers, viewerID)
+						}
+					}
 				}
+
+				// Update the viewersByCallId map
+				viewersByCallId[streamID] = viewers
 			}
 
 			programResponse.Streams[streamID] = streamResponse
@@ -185,21 +203,42 @@ func getPrivateKey(w http.ResponseWriter, r *http.Request) {
 }
 
 func getLiveStreams(w http.ResponseWriter, r *http.Request) {
-	url := fmt.Sprintf("%s/api/ls/v1/live?token=%s", os.Getenv("BACKEND_ENDPOINT"), os.Getenv("TOKEN"))
+	url := fmt.Sprintf("https://platform.nativeframe.com/program/api/v1/projects/%s/streams", os.Getenv("PROJECT_ID"))
 
-	resp, err := http.Get(url)
+	// Create a new request
+	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		http.Error(w, "Error creating request", http.StatusInternalServerError)
+		return
+	}
+	req.Header.Add("Accept", "application/json")
+	// Add the Authorization header
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", os.Getenv("TOKEN")))
+
+	// Create a client and send the request
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		http.Error(w, "Error fetching live streams", http.StatusInternalServerError)
 		return
 	}
 	defer resp.Body.Close()
 
-	var data interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+	// Check if the response status code is successful
+	if resp.StatusCode != http.StatusOK {
+		http.Error(w, fmt.Sprintf("Error from API: %s", resp.Status), resp.StatusCode)
 		return
 	}
 
+	// Read and parse the response body
+	var data interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		http.Error(w, "Error parsing response", http.StatusInternalServerError)
+		return
+	}
+
+	// Set the content type and encode the response
+	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(data)
 }
 
