@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"os"
 	"strings"
+
+	"github.com/google/uuid"
 )
 
 var viewersByCallId = make(map[string][]string)
@@ -184,22 +186,73 @@ func getUserData(token Token) map[string]string {
 }
 
 func getPrivateKey(w http.ResponseWriter, r *http.Request) {
-	url := fmt.Sprintf("%s/api/ls/v1/key/%s?token=%s", os.Getenv("BACKEND_ENDPOINT"), r.URL.Query().Get("user"), os.Getenv("TOKEN"))
+	projectID := os.Getenv("PROJECT_ID")
+	url := fmt.Sprintf("https://platform.nativeframe.com/program/api/v1/projects/%s/streams", projectID)
 
-	resp, err := http.Get(url)
+	// Generate UUID for authKey
+	authKey := uuid.New().String()
+
+	// Generate a stream name (you can modify this as needed)
+	streamName := fmt.Sprintf("stream_%s", uuid.New().String()[:8])
+
+	// Create the payload
+	payload := map[string]interface{}{
+		"authKey":              authKey,
+		"streamName":           streamName,
+		"authType":             "private+program-states", // You can change this if needed
+		"transcode":            true,                     // You can change this if needed
+		"deleteExisting":       false,                    // You can change this if needed
+		"allowAppDataOverride": true,                     // You can change this if needed
+	}
+
+	// Convert payload to JSON
+	jsonPayload, err := json.Marshal(payload)
 	if err != nil {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		http.Error(w, "Error creating payload", http.StatusInternalServerError)
+		return
+	}
+
+	// Create a new POST request
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonPayload))
+	if err != nil {
+		http.Error(w, "Error creating request", http.StatusInternalServerError)
+		return
+	}
+
+	// Set headers
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", os.Getenv("TOKEN")))
+
+	// Send the request
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		http.Error(w, "Error sending request", http.StatusInternalServerError)
 		return
 	}
 	defer resp.Body.Close()
 
-	var data interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+	// Check the response status code
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		http.Error(w, fmt.Sprintf("Error from API: %s. Body: %s", resp.Status, string(body)), resp.StatusCode)
 		return
 	}
 
-	json.NewEncoder(w).Encode(data)
+	// Read and parse the response body
+	var responseData map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&responseData); err != nil {
+		http.Error(w, "Error parsing response", http.StatusInternalServerError)
+		return
+	}
+
+	// Add authKey and streamName to the response
+	responseData["authKey"] = authKey
+	responseData["streamName"] = streamName
+
+	// Set the content type and encode the response
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(responseData)
 }
 
 func getLiveStreams(w http.ResponseWriter, r *http.Request) {
